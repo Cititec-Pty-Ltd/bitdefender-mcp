@@ -9,9 +9,9 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/WYRE-AI/bitdefender-mcp"
+    "url": "https://github.com/Cititec-Pty-Ltd/bitdefender-mcp"
   },
-  "homepage": "https://github.com/WYRE-AI/bitdefender-mcp",
+  "homepage": "https://github.com/Cititec-Pty-Ltd/bitdefender-mcp",
   "scripts": {
     "build": "tsup",
     "prebuild": "npm run clean",
