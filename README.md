@@ -1,3 +1,6 @@
+> **Cititec fork** of [WYRE-AI/bitdefender-mcp](https://github.com/WYRE-AI/bitdefender-mcp). Before changing anything, read
+> [CITITEC-FORK.md](CITITEC-FORK.md): which changes go back to Wyre and which stay in this fork.
+
 # Bitdefender GravityZone MCP Server
 
 MCP server for [Bitdefender GravityZone](https://www.bitdefender.com/business/)'s Control Center API - endpoint/network inventory, security policies, the account-wide malware-hash Blocklist, and scheduled/instant reports - for AI assistants and the WYRE Conduit gateway.
