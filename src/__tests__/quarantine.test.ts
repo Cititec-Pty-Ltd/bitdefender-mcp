@@ -14,6 +14,7 @@ describe('handleQuarantineTool', () => {
 
   afterEach(() => {
     vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
   });
 
   it('bitdefender_list_quarantine_items calls getQuarantineItemsList on the quarantine/computers service', async () => {
@@ -29,9 +30,9 @@ describe('handleQuarantineTool', () => {
             quarantinedOn: '2026-11-05T09:00:00',
             actionStatus: 0,
             endpointId: 'ep-1',
-            endpointName: 'CALEB',
+            endpointName: 'ENDPOINT-01',
             threatName: 'Trojan.Generic.123',
-            details: { filePath: 'c:\\users\\caleb\\downloads\\invoice.exe', fileSha256: 'abc' },
+            details: { filePath: 'c:\\users\\jsmith\\downloads\\invoice.exe', fileSha256: 'abc' },
           },
         ],
       })
@@ -54,6 +55,8 @@ describe('handleQuarantineTool', () => {
   });
 
   it('returns a credential error without calling fetch when no credentials are configured', async () => {
+    vi.stubEnv('BITDEFENDER_API_KEY', '');
+    vi.stubEnv('BITDEFENDER_ACCESS_URL', '');
     const result = await handleQuarantineTool('bitdefender_list_quarantine_items', {});
 
     expect(result.isError).toBe(true);

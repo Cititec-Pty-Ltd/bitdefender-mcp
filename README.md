@@ -37,7 +37,7 @@ Rate limit: **10 requests/second per API key**; GravityZone returns `429` above 
 
 | Env var | Description |
 |---|---|
-| `BITDEFENDER_API_KEY` | API key generated in Control Center, with the Network/Policies/Reports/Incidents areas selected. |
+| `BITDEFENDER_API_KEY` | API key generated in Control Center, with the Network/Policies/Reports/Incidents/Quarantine areas selected. |
 | `BITDEFENDER_ACCESS_URL` | The account's Control Center Access URL (e.g. `https://cloud.gravityzone.bitdefender.com`). |
 | `MCP_TRANSPORT` | `stdio` (default) or `http`. |
 | `AUTH_MODE` | `env` (default, reads the two vars above) or `gateway` (credentials arrive per-request via the `X-Bitdefender-Api-Key` / `X-Bitdefender-Access-Url` headers, injected by the Conduit gateway). |
@@ -45,6 +45,8 @@ Rate limit: **10 requests/second per API key**; GravityZone returns `429` above 
 | `LOG_LEVEL` | `debug` \| `info` (default) \| `warn` \| `error`. |
 
 ### Request limits
+
+- `BITDEFENDER_MAX_UPSTREAM_BYTES` caps each GravityZone response at 16 MiB (16777216 bytes) by default, enforced while streaming before JSON parsing. Positive values are capped at 128 MiB (134217728 bytes); missing, blank, invalid, or non-positive values fall back to the default.
 
 - HTTP request bodies are capped at 256 KiB (262144 bytes). After the `X-Gateway-S2S` check passes, a `Content-Length` above the cap returns 413 with a JSON-RPC error; bodies without `Content-Length` are capped by the MCP SDK transport. Unauthenticated requests still get 401 first.
 - `tools/call` arguments are capped at 10,000 elements (every array item and object key at any depth). Larger inputs return an `isError` tool result and are never dispatched.
@@ -93,7 +95,7 @@ These limits address CVE-2026-111768 / GHSA-46jr-4wx8-v453 (memory exhaustion du
 - `createResponseAction`, `startYaraScan`, `createCustomRule`, `updateCustomRule`, `deleteCustomRule` - response actions and detection-rule changes.
 
 **Hard-excluded (Quarantine API) - never implemented:**
-- `createRemoveQuarantineItemTask`, `createRestoreQuarantineItemTask` (and their Exchange equivalents) - delete or release a quarantined file on a real endpoint. `bitdefender_list_quarantine_items` (read) stays; these do not.
+- `createRemoveQuarantineItemTask`, `createRestoreQuarantineItemTask` (and their Exchange equivalents), `createEmptyQuarantineTask`, `createAddFileToQuarantineTask`, and `createReleaseQuarantineExchangeItemTask` - write methods that empty quarantine, add, delete, or release a quarantined file on a real endpoint. `bitdefender_list_quarantine_items` (read) stays; these do not.
 
 **Hard-excluded (Reports API) - never implemented:**
 - `createReport` - creates a new scheduled/instant report definition.

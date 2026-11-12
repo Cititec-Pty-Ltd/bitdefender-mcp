@@ -80,12 +80,37 @@ export function isIncidentTool(name: string): boolean {
   return TOOL_NAMES.has(name);
 }
 
-/** Returns an error message if a date pair is half-sent, else null. */
+/** Checks ISO date syntax and calendar validity before Date.parse can normalize it. */
+function isIsoDate(value: unknown): value is string {
+  if (typeof value !== 'string') return false;
+  const match = /^(\d{4})-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])(?:T(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z|[+-](?:[01]\d|2[0-3]):[0-5]\d)?)?$/.exec(value);
+  if (!match) return false;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const leapYear = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+  const daysInMonth = [31, leapYear ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+  return day <= daysInMonth[month - 1];
+}
+
+/** Validates that date pairs are complete, valid ISO dates, and strictly ordered. */
 function checkDatePairs(filters: IncidentFilters | undefined): string | null {
   if (!filters) return null;
   for (const [start, end] of DATE_PAIRS) {
-    if (Boolean(filters[start]) !== Boolean(filters[end])) {
+    const startValue = filters[start];
+    const endValue = filters[end];
+    if ((startValue !== undefined) !== (endValue !== undefined)) {
       return `filters.${start} and filters.${end} must be sent together.`;
+    }
+    if (startValue !== undefined && endValue !== undefined) {
+      const startTime = isIsoDate(startValue) ? Date.parse(startValue) : NaN;
+      const endTime = isIsoDate(endValue) ? Date.parse(endValue) : NaN;
+      if (!Number.isFinite(startTime) || !Number.isFinite(endTime)) {
+        return `filters.${start} and filters.${end} must be valid ISO 8601 dates.`;
+      }
+      if (startTime >= endTime) {
+        return `filters.${start} must be earlier than filters.${end}.`;
+      }
     }
   }
   return null;
