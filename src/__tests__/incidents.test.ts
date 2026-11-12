@@ -80,6 +80,40 @@ describe('handleIncidentTool', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  describe.each([
+    ['startDate', 'endDate'],
+    ['processedStartDate', 'processedEndDate'],
+    ['changeStartDate', 'changeEndDate'],
+  ])('%s / %s validation', (start, end) => {
+    it.each([
+      ['2026-11-11T00:00:00Z', '2026-11-01T00:00:00Z'],
+      ['2026-11-01T00:00:00Z', '2026-11-01T00:00:00Z'],
+    ])('rejects unordered dates %s / %s without fetch', async (startValue, endValue) => {
+      const result = await runWithCredentials(creds, () => handleIncidentTool('bitdefender_list_incidents', {
+        filters: { [start]: startValue, [end]: endValue },
+      }));
+      expect(result.isError).toBe(true);
+      expect(textOf(result)).toContain(`filters.${start} must be earlier than filters.${end}`);
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ['not-a-date', '2026-11-11T00:00:00Z'],
+      ['Sat, 01 Jan 2000 08:00:00 UT', '2026-11-11T00:00:00Z'],
+      ['2026-02-31', '2026-11-11T00:00:00Z'],
+      ['2026-11-01T00:00:00Z', '2026-11-31T00:00:00Z'],
+      ['2026-11-01T00:00:00Z', 'not-a-date'],
+      ['', ''],
+    ])('rejects invalid ISO dates %s / %s without fetch', async (startValue, endValue) => {
+      const result = await runWithCredentials(creds, () => handleIncidentTool('bitdefender_list_incidents', {
+        filters: { [start]: startValue, [end]: endValue },
+      }));
+      expect(result.isError).toBe(true);
+      expect(textOf(result)).toContain('valid ISO 8601 dates');
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+  });
+
   it('bitdefender_get_incident calls getIncident on the v1.2 incidents area', async () => {
     fetchMock.mockResolvedValueOnce(
       jsonRpcSuccessResponse({ incidentId: '67dd30dd4a842ebbbb0b6af3', severityScore: 80, attackTypes: ['Malware'] })
