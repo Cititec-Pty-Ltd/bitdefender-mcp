@@ -138,6 +138,9 @@ export async function jsonRpcCall<T>(
   // A short 429 (GravityZone allows 10 requests per second) is
   // retried, bounded and honouring Retry-After, inside
   // fetchWithRateLimitRetry. Each attempt gets its own timeout.
+  // Replaying is safe even though every call is an HTTP POST: this client
+  // only calls read-only getXxx/listXxx methods (see tools/*.ts), so a
+  // repeated request cannot change anything.
   const res = await fetchWithRateLimitRetry(url, `${area}/${method}`, () => ({
     method: 'POST',
     headers: {
@@ -174,7 +177,14 @@ export async function jsonRpcCall<T>(
     );
   }
   if (!res.ok) {
-    throw new BitdefenderApiError(`GravityZone ${area}/${method} failed: HTTP ${res.status}`, res.status);
+    // A 503 that still carries Retry-After (the hint was over the cap, or the
+    // retries ran out) keeps the requested wait in the error.
+    const retryAfterSeconds = res.status === 503 ? retryAfterSecondsOf(res) : undefined;
+    throw new BitdefenderApiError(
+      `GravityZone ${area}/${method} failed: HTTP ${res.status}` +
+        (retryAfterSeconds !== undefined ? `. Try again in ${retryAfterSeconds} s.` : ''),
+      res.status,
+    );
   }
 
   const text = await readBoundedText(res, maxUpstreamBytes(), `${area}/${method}`);
@@ -189,10 +199,11 @@ export async function jsonRpcCall<T>(
     if (body.error.code === RATE_LIMIT_RPC_CODE) {
       // Normally sent with HTTP 429 (handled above); kept as a rate limit if
       // it ever arrives in a 2xx envelope, rather than as a generic API error.
+      const retryAfterSeconds = retryAfterSecondsOf(res) ?? DEFAULT_RETRY_AFTER_SECONDS;
       throw new BitdefenderRateLimitError(
         `GravityZone rate-limited the request (HTTP 429, JSON-RPC ${RATE_LIMIT_RPC_CODE}): ${area}/${method}. ` +
-          `Try again in ${DEFAULT_RETRY_AFTER_SECONDS} s.`,
-        DEFAULT_RETRY_AFTER_SECONDS,
+          `Try again in ${retryAfterSeconds} s.`,
+        retryAfterSeconds,
       );
     }
     throw new BitdefenderApiError(

@@ -127,6 +127,42 @@ describe('jsonRpcCall retry on 429', () => {
     expect((error as Error).message).toMatch(/-32003.*Try again in 1 s\./);
   });
 
+  it('uses Retry-After for a -32003 in a 2xx envelope when GravityZone sends one', async () => {
+    const res = jsonRpcErrorResponse(-32003, 'Too many requests');
+    res.headers.set('Retry-After', '60');
+    fetchMock.mockResolvedValueOnce(res);
+
+    const error = await jsonRpcCall(creds, 'network', 'getEndpointsList', {}).catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(BitdefenderRateLimitError);
+    expect((error as Error).message).toMatch(/-32003.*Try again in 60 s\./);
+    expect((error as BitdefenderRateLimitError).retryAfterSeconds).toBe(60);
+  });
+
+  it('keeps the Retry-After of a 503 it stops retrying, and leaves a bare 503 unchanged', async () => {
+    // Over the 10 s cap: returned at once, wait kept.
+    fetchMock.mockResolvedValueOnce(limited('30', 503));
+    await expect(jsonRpcCall(creds, 'network', 'getEndpointsList', {})).rejects.toThrow(
+      'GravityZone network/getEndpointsList failed: HTTP 503. Try again in 30 s.',
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    // Retries exhausted: the last Retry-After is kept.
+    fetchMock.mockReset();
+    fetchMock.mockImplementation(async () => limited('2', 503));
+    const pending = jsonRpcCall(creds, 'network', 'getEndpointsList', {});
+    const assertion = expect(pending).rejects.toThrow(/HTTP 503\. Try again in 2 s\./);
+    await vi.advanceTimersByTimeAsync(10_000);
+    await assertion;
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+
+    fetchMock.mockReset();
+    fetchMock.mockResolvedValueOnce(httpErrorResponse(503));
+    await expect(jsonRpcCall(creds, 'network', 'getEndpointsList', {})).rejects.toThrow(
+      /^GravityZone network\/getEndpointsList failed: HTTP 503$/,
+    );
+  });
+
   it('retries a 503 only when it carries Retry-After', async () => {
     fetchMock.mockResolvedValueOnce(httpErrorResponse(503));
     await expect(jsonRpcCall(creds, 'network', 'getEndpointsList', {})).rejects.toThrow(BitdefenderApiError);
