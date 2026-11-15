@@ -17,3 +17,7 @@ Per-version release notes for tagged releases are published on the [GitHub Relea
 - Upstream responses are now capped and streamed through `readBoundedText`. Responses above the limit fail with `BitdefenderApiError`. Invalid JSON now raises `BitdefenderApiError`.
 - HTTP 403 messages now use Control Center area names (for example "Incidents" and "Quarantine").
 - `BitdefenderApiArea` now includes `quarantine/computers`. `BitdefenderApiVersion` is added. Incident and quarantine types are exported.
+
+### Fixed
+
+- A rate-limited request (HTTP 429 with JSON-RPC error `-32003`, or a 503 with `Retry-After`) is now retried up to twice, waiting for the `Retry-After` GravityZone sends (or 1 s then 2 s without one). Waits are capped at 10 s each and 20 s in total, and every attempt gets its own timeout. When the wait would be longer, the error says how long to wait (`Try again in N s.`) and `BitdefenderRateLimitError` carries `retryAfterSeconds`. A `-32003` in a 2xx envelope is also reported as a rate limit.
