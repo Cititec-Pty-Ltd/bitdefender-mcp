@@ -31,7 +31,7 @@ A successful call returns `{ "id", "jsonrpc", "result": ... }`. A failed call ca
 - **HTTP-layer failure** - `401` (bad/missing key), `403` (the key doesn't have this API area enabled - see above), `405` (non-POST), or `429` (rate limit).
 - **JSON-RPC-layer failure** - HTTP `200` with a body `error` member (`{code, message, data.details}`, e.g. `-32602 Invalid params`).
 
-Rate limit: **10 requests/second per API key**; GravityZone returns `429` above that.
+Rate limit: **10 requests/second per API key**; GravityZone returns `429` (JSON-RPC error `-32003`) above that. A rate-limited call is retried up to twice, waiting for the `Retry-After` GravityZone sends (or 1 s then 2 s without one); each wait is capped at 10 s and the total at 20 s. Past that the tool error says `HTTP 429` and `Try again in N s.`
 
 ## Configuration
 

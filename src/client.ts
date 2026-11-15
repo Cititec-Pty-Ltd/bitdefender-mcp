@@ -1,5 +1,6 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { randomUUID } from 'node:crypto';
+import { fetchWithRateLimitRetry, retryAfterSecondsOf } from './rate-limit.js';
 import { maxUpstreamBytes, readBoundedText } from './upstream.js';
 import { logger } from './utils/logger.js';
 import {
@@ -108,6 +109,12 @@ interface JsonRpcFailure {
 
 type JsonRpcResponse<T> = JsonRpcSuccess<T> | JsonRpcFailure;
 
+/** JSON-RPC error code GravityZone uses for "Too many requests". */
+const RATE_LIMIT_RPC_CODE = -32003;
+
+/** Wait to report when a rate-limit response has no Retry-After (the limit is per second). */
+const DEFAULT_RETRY_AFTER_SECONDS = 1;
+
 function isJsonRpcFailure(body: unknown): body is JsonRpcFailure {
   return typeof body === 'object' && body !== null && 'error' in body;
 }
@@ -128,7 +135,13 @@ export async function jsonRpcCall<T>(
   const url = `${creds.accessUrl.replace(/\/+$/, '')}/${version}/jsonrpc/${area}`;
   const requestId = randomUUID();
 
-  const res = await fetch(url, {
+  // A short 429 (GravityZone allows 10 requests per second) is
+  // retried, bounded and honouring Retry-After, inside
+  // fetchWithRateLimitRetry. Each attempt gets its own timeout.
+  // Replaying is safe even though every call is an HTTP POST: this client
+  // only calls read-only getXxx/listXxx methods (see tools/*.ts), so a
+  // repeated request cannot change anything.
+  const res = await fetchWithRateLimitRetry(url, `${area}/${method}`, () => ({
     method: 'POST',
     headers: {
       Authorization: buildBasicAuthHeader(creds.apiKey),
@@ -137,7 +150,7 @@ export async function jsonRpcCall<T>(
     },
     body: JSON.stringify({ id: requestId, jsonrpc: '2.0', method, params }),
     signal: AbortSignal.timeout(15_000),
-  });
+  }));
 
   // GravityZone signals auth/authorization/rate-limit failures at the HTTP
   // layer (distinct HTTP status codes), separately from JSON-RPC-level
@@ -154,10 +167,24 @@ export async function jsonRpcCall<T>(
     );
   }
   if (res.status === 429) {
-    throw new BitdefenderRateLimitError(`GravityZone rate-limited the request (HTTP 429): ${area}/${method}`);
+    // GravityZone sends JSON-RPC error -32003 ("Too many requests") with this
+    // status. The wording below ("HTTP 429", "Try again in N s.") is what
+    // callers and rate-limit monitors key off.
+    const retryAfterSeconds = retryAfterSecondsOf(res) ?? DEFAULT_RETRY_AFTER_SECONDS;
+    throw new BitdefenderRateLimitError(
+      `GravityZone rate-limited the request (HTTP 429): ${area}/${method}. Try again in ${retryAfterSeconds} s.`,
+      retryAfterSeconds,
+    );
   }
   if (!res.ok) {
-    throw new BitdefenderApiError(`GravityZone ${area}/${method} failed: HTTP ${res.status}`, res.status);
+    // A 503 that still carries Retry-After (the hint was over the cap, or the
+    // retries ran out) keeps the requested wait in the error.
+    const retryAfterSeconds = res.status === 503 ? retryAfterSecondsOf(res) : undefined;
+    throw new BitdefenderApiError(
+      `GravityZone ${area}/${method} failed: HTTP ${res.status}` +
+        (retryAfterSeconds !== undefined ? `. Try again in ${retryAfterSeconds} s.` : ''),
+      res.status,
+    );
   }
 
   const text = await readBoundedText(res, maxUpstreamBytes(), `${area}/${method}`);
@@ -169,6 +196,16 @@ export async function jsonRpcCall<T>(
   }
   if (isJsonRpcFailure(body)) {
     const detail = body.error.data?.details;
+    if (body.error.code === RATE_LIMIT_RPC_CODE) {
+      // Normally sent with HTTP 429 (handled above); kept as a rate limit if
+      // it ever arrives in a 2xx envelope, rather than as a generic API error.
+      const retryAfterSeconds = retryAfterSecondsOf(res) ?? DEFAULT_RETRY_AFTER_SECONDS;
+      throw new BitdefenderRateLimitError(
+        `GravityZone rate-limited the request (HTTP 429, JSON-RPC ${RATE_LIMIT_RPC_CODE}): ${area}/${method}. ` +
+          `Try again in ${retryAfterSeconds} s.`,
+        retryAfterSeconds,
+      );
+    }
     throw new BitdefenderApiError(
       `GravityZone ${area}/${method} returned a JSON-RPC error: ${body.error.message}${detail ? ` (${detail})` : ''}`,
       res.status,
