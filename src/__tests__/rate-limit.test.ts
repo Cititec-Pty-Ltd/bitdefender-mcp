@@ -37,22 +37,23 @@ describe('parseRetryAfter', () => {
 });
 
 describe('retryDelayMs', () => {
-  it('uses Retry-After when given', () => {
-    expect(retryDelayMs(0, 3000, 0)).toBe(3000);
+  it('uses Retry-After when given, up to 10 s', () => {
+    expect(retryDelayMs(0, 3000)).toBe(3000);
+    expect(retryDelayMs(0, 0)).toBe(0);
+    expect(retryDelayMs(0, RATE_LIMIT_RETRY.maxWaitMs)).toBe(10_000);
   });
 
-  it('backs off exponentially without Retry-After', () => {
-    expect(retryDelayMs(0, undefined, 0, () => 0)).toBe(1000);
-    expect(retryDelayMs(1, undefined, 1000, () => 0)).toBe(2000);
+  it('does not retry without Retry-After (no invented backoff)', () => {
+    expect(retryDelayMs(0, undefined)).toBeUndefined();
   });
 
-  it('stops after maxRetries', () => {
-    expect(retryDelayMs(RATE_LIMIT_RETRY.maxRetries, 1000, 0)).toBeUndefined();
+  it('retries at most once', () => {
+    expect(RATE_LIMIT_RETRY.maxRetries).toBe(1);
+    expect(retryDelayMs(1, 1000)).toBeUndefined();
   });
 
-  it('does not wait longer than maxWaitMs or past maxTotalWaitMs', () => {
-    expect(retryDelayMs(0, RATE_LIMIT_RETRY.maxWaitMs + 1, 0)).toBeUndefined();
-    expect(retryDelayMs(1, 5000, RATE_LIMIT_RETRY.maxTotalWaitMs - 4000)).toBeUndefined();
+  it('does not wait longer than maxWaitMs', () => {
+    expect(retryDelayMs(0, RATE_LIMIT_RETRY.maxWaitMs + 1)).toBeUndefined();
   });
 });
 
@@ -118,6 +119,28 @@ describe('jsonRpcCall retry on 429', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it('fails at once without Retry-After, with the 1 s default in both places', async () => {
+    fetchMock.mockImplementation(async () => limited());
+
+    const error = await jsonRpcCall(creds, 'network', 'getEndpointsList', {}).catch((e: unknown) => e);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect((error as Error).message).toMatch(/HTTP 429.*Try again in 1 s\./);
+    expect((error as BitdefenderRateLimitError).retryAfterSeconds).toBe(1);
+  });
+
+  it('reports Retry-After: 0 as 1 s after the single retry', async () => {
+    fetchMock.mockImplementation(async () => limited('0'));
+
+    const pending = jsonRpcCall(creds, 'network', 'getEndpointsList', {}).catch((e: unknown) => e);
+    await vi.advanceTimersByTimeAsync(0);
+    const error = await pending;
+
+    expect(fetchMock).toHaveBeenCalledTimes(RATE_LIMIT_RETRY.maxRetries + 1);
+    expect((error as Error).message).toMatch(/Try again in 1 s\./);
+    expect((error as BitdefenderRateLimitError).retryAfterSeconds).toBe(1);
+  });
+
   it('treats JSON-RPC -32003 in a 2xx envelope as a rate limit', async () => {
     fetchMock.mockResolvedValueOnce(jsonRpcErrorResponse(-32003, 'Too many requests'));
 
@@ -154,7 +177,7 @@ describe('jsonRpcCall retry on 429', () => {
     const assertion = expect(pending).rejects.toThrow(/HTTP 503\. Try again in 2 s\./);
     await vi.advanceTimersByTimeAsync(10_000);
     await assertion;
-    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(fetchMock).toHaveBeenCalledTimes(RATE_LIMIT_RETRY.maxRetries + 1);
 
     fetchMock.mockReset();
     fetchMock.mockResolvedValueOnce(httpErrorResponse(503));

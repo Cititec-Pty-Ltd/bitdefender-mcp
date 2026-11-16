@@ -20,4 +20,4 @@ Per-version release notes for tagged releases are published on the [GitHub Relea
 
 ### Fixed
 
-- A rate-limited request (HTTP 429 with JSON-RPC error `-32003`, or a 503 with `Retry-After`) is now retried up to twice, waiting for the `Retry-After` GravityZone sends (or 1 s then 2 s without one). Waits are capped at 10 s each and 20 s in total, and every attempt gets its own timeout. When the wait would be longer, the error says how long to wait (`Try again in N s.`) and `BitdefenderRateLimitError` carries `retryAfterSeconds`. A `-32003` in a 2xx envelope is also reported as a rate limit.
+- A rate-limited request (HTTP 429 with JSON-RPC error `-32003`, or a 503 with `Retry-After`) is now retried once when GravityZone sends a `Retry-After` of at most 10 s, after waiting that long; the retry gets its own timeout. With no `Retry-After` (reported as 1 s), or a longer one, the error is returned at once. When the wait would be longer, the error says how long to wait (`Try again in N s.`) and `BitdefenderRateLimitError` carries `retryAfterSeconds`. A `-32003` in a 2xx envelope is also reported as a rate limit.
