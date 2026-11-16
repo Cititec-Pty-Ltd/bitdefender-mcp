@@ -3,20 +3,17 @@ import { logger } from './utils/logger.js';
 /**
  * Bounded retry for rate-limited GravityZone responses.
  *
- * A short wait is retried here so a brief burst does not surface as a tool
- * error. A long one is returned at once, so a tool call is never held for
- * minutes: the caller gets the 429 and its Retry-After. A 503 is retried
- * only when it carries Retry-After.
+ * Fleet 429 policy: a Retry-After of at most 10 s is waited for and retried
+ * once, so a brief burst does not surface as a tool error. With no
+ * Retry-After, or a longer one, the error is returned at once (no invented
+ * backoff), so a tool call is never held for long. A 503 is retried
+ * the same way only when it carries Retry-After.
  */
 export const RATE_LIMIT_RETRY = {
-  /** Retries after the first attempt. */
-  maxRetries: 2,
-  /** Longest single wait. A larger Retry-After is not waited for. */
+  /** Retries after the first attempt (fleet 429 policy: at most one). */
+  maxRetries: 1,
+  /** Longest wait that is retried. A missing or larger Retry-After is not retried. */
   maxWaitMs: 10_000,
-  /** Longest total wait across the retries of one request. */
-  maxTotalWaitMs: 20_000,
-  /** Backoff for the first retry when the response has no Retry-After; doubles each retry. */
-  baseBackoffMs: 1_000,
 };
 
 /** Parses a Retry-After value into milliseconds from `now`; undefined if absent or invalid. */
@@ -40,19 +37,14 @@ export function retryAfterSecondsOf(res: Response): number | undefined {
 
 /**
  * Milliseconds to wait before retry number `attempt` (0-based), or
- * undefined when the request should not be retried.
+ * undefined when the request should not be retried. Only a Retry-After the
+ * vendor sent is waited for: with no header, or one over maxWaitMs, the
+ * caller gets the error at once (no invented backoff).
  */
-export function retryDelayMs(
-  attempt: number,
-  retryAfterMs: number | undefined,
-  waitedMs: number,
-  random: () => number = Math.random
-): number | undefined {
+export function retryDelayMs(attempt: number, retryAfterMs: number | undefined): number | undefined {
   if (attempt >= RATE_LIMIT_RETRY.maxRetries) return undefined;
-  const delay = retryAfterMs ?? RATE_LIMIT_RETRY.baseBackoffMs * 2 ** attempt + Math.floor(random() * 250);
-  if (delay > RATE_LIMIT_RETRY.maxWaitMs) return undefined;
-  if (waitedMs + delay > RATE_LIMIT_RETRY.maxTotalWaitMs) return undefined;
-  return delay;
+  if (retryAfterMs === undefined || retryAfterMs > RATE_LIMIT_RETRY.maxWaitMs) return undefined;
+  return retryAfterMs;
 }
 
 export const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
@@ -68,17 +60,15 @@ export async function fetchWithRateLimitRetry(
   makeInit: () => RequestInit
 ): Promise<Response> {
   let res = await fetch(url, makeInit());
-  let waitedMs = 0;
   for (let attempt = 0; ; attempt++) {
     const retryAfterMs = parseRetryAfter(res.headers.get('retry-after'));
     const retryable = res.status === 429 || (res.status === 503 && retryAfterMs !== undefined);
     if (!retryable) return res;
-    const delay = retryDelayMs(attempt, retryAfterMs, waitedMs);
+    const delay = retryDelayMs(attempt, retryAfterMs);
     if (delay === undefined) return res;
     logger.warn('GravityZone asked us to slow down; retrying', { status: res.status, path: label, delayMs: delay });
     await res.body?.cancel().catch(() => undefined);
     await sleep(delay);
-    waitedMs += delay;
     res = await fetch(url, makeInit());
   }
 }
