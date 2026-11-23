@@ -31,8 +31,19 @@ export class BitdefenderAuthError extends Error {}
  */
 export class BitdefenderForbiddenError extends Error {}
 
-/** Thrown when GravityZone rate-limits the request (HTTP 429 - more than 10 req/s per key). */
-export class BitdefenderRateLimitError extends Error {}
+/**
+ * Thrown when GravityZone rate-limits the request (HTTP 429 with JSON-RPC
+ * error -32003 - more than 10 req/s) and the bounded retry gave up.
+ */
+export class BitdefenderRateLimitError extends Error {
+  /** Seconds to wait before trying again (Retry-After, or 1 s without one). */
+  constructor(
+    message: string,
+    readonly retryAfterSeconds?: number,
+  ) {
+    super(message);
+  }
+}
 
 /**
  * Thrown for a JSON-RPC-level error (HTTP 200 with a body `error` member -

@@ -180,9 +180,17 @@ describe('jsonRpcCall', () => {
   });
 
   it('throws BitdefenderRateLimitError on HTTP 429 (more than 10 req/s)', async () => {
-    fetchMock.mockResolvedValueOnce(httpErrorResponse(429));
+    // A Retry-After past the 10 s cap is not waited for, so this is not retried.
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ error: 'error' }), { status: 429, headers: { 'Retry-After': '30' } }),
+    );
 
-    await expect(jsonRpcCall(creds, 'reports', 'getReportsList', {})).rejects.toThrow(BitdefenderRateLimitError);
+    const call = jsonRpcCall(creds, 'reports', 'getReportsList', {});
+    await expect(call).rejects.toThrow(BitdefenderRateLimitError);
+    await expect(call).rejects.toThrow(
+      'GravityZone rate-limited the request (HTTP 429): reports/getReportsList. Try again in 30 s.',
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it('throws BitdefenderApiError on any other unexpected HTTP status', async () => {

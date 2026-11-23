@@ -14,6 +14,15 @@ Per-version release notes for tagged releases are published on the [GitHub Relea
   target is now parsed against a fixed base, so `Host` is no longer consulted, and a target
   that still cannot be parsed gets a `400` JSON response while the server keeps running.
 
+- **Rate-limited requests are retried once and say how long to wait.** A rate-limited call
+  (HTTP 429 with JSON-RPC error `-32003`, or a 503 with `Retry-After`) is retried once when
+  GravityZone sends a `Retry-After` of at most 10 s, after waiting that long; each attempt gets
+  its own timeout. With no `Retry-After`, or a longer one, the error is returned at once (no
+  invented backoff). The error says `Try again in N s.` (1 s when GravityZone sends no
+  `Retry-After`), and `BitdefenderRateLimitError.retryAfterSeconds` holds the same N. A
+  `-32003` inside a 2xx envelope is also reported as a rate limit, and a final 503 that carries
+  `Retry-After` keeps the wait in its error.
+
 ### Added
 
 - Initial v1 release: 10 read-only tools covering endpoint/network inventory (endpoints, managed-endpoint detail, custom groups, network inventory items, scan tasks), security policies, the account-wide malware-hash Blocklist, and scheduled/instant reports. HTTP Basic authentication (API key as username, empty password) against Bitdefender GravityZone's **JSON-RPC 2.0** API - a new call shape for this catalog (every other Conduit sidecar calls REST). See README's Authentication and Scope sections for the full accounting of excluded mutating methods and the credential-scope finding (a GravityZone API key is scoped per API area, not per method).
