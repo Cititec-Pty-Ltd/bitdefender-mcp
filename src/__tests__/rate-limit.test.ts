@@ -165,9 +165,10 @@ describe('jsonRpcCall retry on 429', () => {
   it('keeps the Retry-After of a 503 it stops retrying, and leaves a bare 503 unchanged', async () => {
     // Over the 10 s cap: returned at once, wait kept.
     fetchMock.mockResolvedValueOnce(limited('30', 503));
-    await expect(jsonRpcCall(creds, 'network', 'getEndpointsList', {})).rejects.toThrow(
-      'GravityZone network/getEndpointsList failed: HTTP 503. Try again in 30 s.',
-    );
+    const overCap = await jsonRpcCall(creds, 'network', 'getEndpointsList', {}).catch((e: unknown) => e);
+    expect(overCap).toBeInstanceOf(BitdefenderApiError);
+    expect((overCap as Error).message).toBe('GravityZone network/getEndpointsList failed: HTTP 503. Try again in 30 s.');
+    expect((overCap as BitdefenderApiError).retryAfterSeconds).toBe(30);
     expect(fetchMock).toHaveBeenCalledTimes(1);
 
     // Retries exhausted: the last Retry-After is kept.
@@ -181,9 +182,9 @@ describe('jsonRpcCall retry on 429', () => {
 
     fetchMock.mockReset();
     fetchMock.mockResolvedValueOnce(httpErrorResponse(503));
-    await expect(jsonRpcCall(creds, 'network', 'getEndpointsList', {})).rejects.toThrow(
-      /^GravityZone network\/getEndpointsList failed: HTTP 503$/,
-    );
+    const bare = await jsonRpcCall(creds, 'network', 'getEndpointsList', {}).catch((e: unknown) => e);
+    expect((bare as Error).message).toMatch(/^GravityZone network\/getEndpointsList failed: HTTP 503$/);
+    expect((bare as BitdefenderApiError).retryAfterSeconds).toBeUndefined();
   });
 
   it('retries a 503 only when it carries Retry-After', async () => {

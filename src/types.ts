@@ -49,7 +49,9 @@ export class BitdefenderRateLimitError extends Error {
  * Thrown for a JSON-RPC-level error (HTTP 200 with a body `error` member -
  * e.g. -32602 Invalid params) or any other unexpected HTTP status.
  * `rpcCode`/`rpcMessage` are populated when the failure came back as a
- * JSON-RPC error object rather than a raw HTTP failure.
+ * JSON-RPC error object rather than a raw HTTP failure. `retryAfterSeconds`
+ * is set for a final 503 that carried Retry-After (the same N as the
+ * "Try again in N s." in the message).
  */
 export class BitdefenderApiError extends Error {
   constructor(
@@ -57,6 +59,7 @@ export class BitdefenderApiError extends Error {
     readonly status?: number,
     readonly rpcCode?: number,
     readonly rpcMessage?: string,
+    readonly retryAfterSeconds?: number,
   ) {
     super(message);
   }

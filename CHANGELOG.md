@@ -21,7 +21,8 @@ Per-version release notes for tagged releases are published on the [GitHub Relea
   invented backoff). The error says `Try again in N s.` (1 s when GravityZone sends no
   `Retry-After`), and `BitdefenderRateLimitError.retryAfterSeconds` holds the same N. A
   `-32003` inside a 2xx envelope is also reported as a rate limit, and a final 503 that carries
-  `Retry-After` keeps the wait in its error.
+  `Retry-After` keeps the wait in its error, as `Try again in N s.` and as
+  `BitdefenderApiError.retryAfterSeconds`.
 
 ### Added
 

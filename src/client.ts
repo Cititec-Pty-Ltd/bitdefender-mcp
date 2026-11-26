@@ -184,6 +184,9 @@ export async function jsonRpcCall<T>(
       `GravityZone ${area}/${method} failed: HTTP ${res.status}` +
         (retryAfterSeconds !== undefined ? `. Try again in ${retryAfterSeconds} s.` : ''),
       res.status,
+      undefined,
+      undefined,
+      retryAfterSeconds,
     );
   }
 
